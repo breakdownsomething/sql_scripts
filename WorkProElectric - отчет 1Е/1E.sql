@@ -1,0 +1,838 @@
+DECLARE
+  @siUserId SmallInt
+SELECT
+  @siUserId=612
+
+drop table #TmpGroupUsers
+--INSERT into  #TmpGroupUsers
+ SELECT Distinct
+  GROUP_ID=GS.GROUP_ID,
+  SUBGROUP_ID=GS.SUBGROUP_ID,
+  SUBGROUP_NAME=GS.SUBGROUP_NAME,
+  USER_ID=@siUserId,
+  EDIT_ID=MAX(CONVERT(INTEGER,GU.EDIT_ID))
+into #TmpGroupUsers
+ FROM
+  ProGroupSub GS (NoLock),
+  ProGroupUsers GU (NoLock)
+ WHERE
+  GU.USER_ID=@siUserId AND
+  (GS.GROUP_ID=GU.GROUP_ID OR GU.GROUP_ID=10010) AND
+  (GS.SUBGROUP_ID=GU.SUBGROUP_ID OR GU.SUBGROUP_ID=0)
+GROUP BY
+  GS.GROUP_ID,
+  GS.SUBGROUP_ID,
+  GS.SUBGROUP_NAME,
+  USER_ID
+ ORDER BY
+  GS.GROUP_ID,
+  GS.SUBGROUP_ID
+
+
+--создание временной таблицы #TmpPart
+IF EXISTS
+       (SELECT *
+         FROM TempDB..sysobjects
+         WHERE id = object_id('TempDB..#TmpPart')
+       )
+  DROP TABLE
+    #TmpPart
+SELECT Distinct
+  Cn.CONTRACT_ID,
+  Cn.CONTRACT_NUMBER,
+  Ab.ABONENT_NAME
+ INTO #TmpPart
+ FROM
+  #TmpGroupUsers GU (NoLock),
+  ProContracts Cn (NoLock),
+  ProAbonents Ab (NoLock)
+ WHERE 
+  GU.USER_ID=@siUserId AND
+  ( (Cn.GROUP_ID=GU.GROUP_ID AND
+     Cn.SUBGROUP_ID=GU.SUBGROUP_ID) 
+    OR
+    (EXISTS 
+       (SELECT
+           *
+          FROM 
+           #TmpGroupUsers PGU (NoLock)
+          WHERE
+           PGU.GROUP_ID=10010 AND
+           PGU.USER_ID=@siUserId)   
+    )
+  )AND
+  Ab.ABONENT_ID=Cn.ABONENT_ID
+
+--================================================================================================
+
+
+
+
+
+
+  CREATE TABLE #TmpMain (
+	ROW_ID	tinyint,
+	CONTRACT_NUMBER varchar(10),
+	TARIFF_ID Integer,
+	TARIFF_VALUE DECIMAL(9,4),
+	Period	Integer,
+	QRT1	Integer,
+	QRT2	Integer,
+	QRT3	Integer,
+	QRT4	Integer,
+	MES1	Integer,
+	MES2	Integer,
+	MES3	Integer,
+	MES4	Integer,
+	MES5	Integer,
+	MES6	Integer,
+	MES7	Integer,
+	MES8	Integer,
+	MES9	Integer,
+	MES10	Integer,
+	MES11	Integer,
+	MES12	Integer)
+
+  CREATE TABLE #TmpFirst (
+	DATE_CALC SmallDateTime,
+	CONTRACT_NUMBER varchar(10),
+	CALC_QUANTITY Integer,
+	TARIFF_ID Integer,
+	TARIFF_VALUE DECIMAL(9,4),
+	MEASURE_ID Tinyint)
+--**********************************************************************
+  DECLARE
+	@DatBeg		SmallDateTime,
+	@DatEnd		SmallDateTime,
+	@ContractId	Integer,
+	@Fact   	Integer,
+  @Tariff   	Integer,
+ @Open          Integer
+
+  SELECT
+	@DatBeg       = convert(smalldatetime,'01-01-2005'), -- :pDatBeg,
+	@DatEnd	      = convert(smalldatetime,'12-31-2005'), -- :pDatEnd,
+	@ContractId   = 0,--:pContractId,
+  @Fact         = 0,--:pFact,
+  @Tariff       = 0,--:pTariff,
+  @Open         = 0--:pOpen
+IF  @Open=1
+BEGIN
+--#########################################3
+
+If @Fact = 1
+BEGIN
+
+  If @ContractId=0
+  INSERT #TmpFirst (
+	DATE_CALC,
+	CONTRACT_NUMBER,
+	CALC_QUANTITY,
+	TARIFF_ID,
+	TARIFF_VALUE,
+	MEASURE_ID)
+  SELECT
+	pc.DATE_CALC,
+	pc.CONTRACT_NUMBER,
+	CALC_QUANTITY=SUM(IsNull(pcd.CALC_QUANTITY,0)),
+	pcd.TARIFF_ID,
+	pcd.TARIFF_VALUE,
+	pcd.MEASURE_ID
+  FROM
+	ProCalcs pc,
+	ProCalcDetails pcd,
+        #TmpPart tp
+  WHERE
+	pc.CONTRACT_id=tp.CONTRACT_id AND
+	pc.DATE_CALC>=@DatBeg AND
+	pc.DATE_CALC<=@DatEnd AND
+	pcd.CALC_ID=pc.CALC_ID AND
+	IsNull(pcd.CALC_QUANTITY,0)<>0 AND
+	pcd.DECODE_ID>0 AND
+	pcd.MEASURE_ID IN (4,7) AND
+	pcd.TARIFF_ID Is NOT NULL AND
+	pcd.TARIFF_VALUE Is NOT NULL
+  GROUP BY
+	pc.DATE_CALC,
+	pc.CONTRACT_NUMBER,
+	pcd.TARIFF_ID,
+	pcd.TARIFF_VALUE,
+	pcd.MEASURE_ID
+  ELSE
+  INSERT #TmpFirst (
+	DATE_CALC,
+	CONTRACT_NUMBER,
+	CALC_QUANTITY,
+	TARIFF_ID,
+	TARIFF_VALUE,
+	MEASURE_ID)
+  SELECT
+	pc.DATE_CALC,
+	pc.CONTRACT_NUMBER,
+	CALC_QUANTITY=SUM(IsNull(pcd.CALC_QUANTITY,0)),
+	pcd.TARIFF_ID,
+	pcd.TARIFF_VALUE,
+	pcd.MEASURE_ID
+  FROM
+	ProCalcs pc,
+	ProCalcDetails pcd
+  WHERE
+	pc.CONTRACT_ID=@ContractId AND
+	pc.DATE_CALC>=@DatBeg AND
+	pc.DATE_CALC<=@DatEnd AND
+	pcd.CALC_ID=pc.CALC_ID AND
+	IsNull(pcd.CALC_QUANTITY,0)<>0 AND
+	pcd.DECODE_ID>0 AND
+	pcd.MEASURE_ID IN (4,7) AND
+	pcd.TARIFF_ID Is NOT NULL AND
+	pcd.TARIFF_VALUE Is NOT NULL
+  GROUP BY
+	pc.DATE_CALC,
+	pc.CONTRACT_NUMBER,
+	pcd.TARIFF_ID,
+	pcd.TARIFF_VALUE,
+	pcd.MEASURE_ID
+
+--**********************************************************************
+--SELECT * FROM  #TmpFirst
+
+  INSERT #TmpMain (
+	ROW_ID,
+	CONTRACT_NUMBER,
+	TARIFF_ID,
+	TARIFF_VALUE,
+	PERIOD  ,
+	QRT1    ,
+	QRT2    ,
+	QRT3    ,
+	QRT4    ,
+	MES1	,
+	MES2	,
+	MES3	,
+	MES4	,
+	MES5	,
+	MES6	,
+	MES7	,
+	MES8	,
+	MES9	,
+	MES10	,
+	MES11	,
+	MES12	)
+  SELECT
+	CASE WHEN TARIFF_ID IN (1,26,106) THEN 1 WHEN TARIFF_ID=0 THEN 3 ELSE 2 END,
+	CONTRACT_NUMBER,
+	TARIFF_ID,
+	TARIFF_VALUE,
+	SUM(CALC_QUANTITY),
+	SUM(CASE WHEN MONTH(DATE_CALC) IN (1,2,3) THEN CALC_QUANTITY ELSE 0 END),
+	SUM(CASE WHEN MONTH(DATE_CALC) IN (4,5,6) THEN CALC_QUANTITY ELSE 0 END),
+	SUM(CASE WHEN MONTH(DATE_CALC) IN (7,8,9) THEN CALC_QUANTITY ELSE 0 END),
+	SUM(CASE WHEN MONTH(DATE_CALC) IN (10,11,12) THEN CALC_QUANTITY ELSE 0 END),
+	SUM(CASE WHEN MONTH(DATE_CALC)=1 THEN CALC_QUANTITY ELSE 0 END),
+	SUM(CASE WHEN MONTH(DATE_CALC)=2 THEN CALC_QUANTITY ELSE 0 END),
+	SUM(CASE WHEN MONTH(DATE_CALC)=3 THEN CALC_QUANTITY ELSE 0 END),
+	SUM(CASE WHEN MONTH(DATE_CALC)=4 THEN CALC_QUANTITY ELSE 0 END),
+	SUM(CASE WHEN MONTH(DATE_CALC)=5 THEN CALC_QUANTITY ELSE 0 END),
+	SUM(CASE WHEN MONTH(DATE_CALC)=6 THEN CALC_QUANTITY ELSE 0 END),
+	SUM(CASE WHEN MONTH(DATE_CALC)=7 THEN CALC_QUANTITY ELSE 0 END),
+	SUM(CASE WHEN MONTH(DATE_CALC)=8 THEN CALC_QUANTITY ELSE 0 END),
+	SUM(CASE WHEN MONTH(DATE_CALC)=9 THEN CALC_QUANTITY ELSE 0 END),
+	SUM(CASE WHEN MONTH(DATE_CALC)=10 THEN CALC_QUANTITY ELSE 0 END),
+	SUM(CASE WHEN MONTH(DATE_CALC)=11 THEN CALC_QUANTITY ELSE 0 END),
+	SUM(CASE WHEN MONTH(DATE_CALC)=12 THEN CALC_QUANTITY ELSE 0 END)
+  FROM
+	#TmpFirst
+  GROUP BY
+	CONTRACT_NUMBER,
+	TARIFF_ID,
+	TARIFF_VALUE
+
+--*****************************************************************
+END
+
+ELSE 
+
+BEGIN 
+
+  If @ContractId=0
+  INSERT #TmpFirst (
+	DATE_CALC,
+	CONTRACT_NUMBER,
+	CALC_QUANTITY,
+	TARIFF_ID,
+	TARIFF_VALUE,
+	MEASURE_ID)
+  SELECT
+	pcd.DATE_CALC,
+	pcd.CONTRACT_NUMBER,
+	pcd.CALC_QUANTITY,
+	pcd.TARIFF_ID,
+	pcd.TARIFF_VALUE,
+	pcd.MEASURE_ID
+  FROM
+	ProPlanDetails pcd (NOLOCK), --GERS pcd,
+        #TmpPart tp
+  WHERE
+	pcd.CONTRACT_NUMBER=tp.CONTRACT_NUMBER AND
+	pcd.DATE_CALC>=@DatBeg AND
+	pcd.DATE_CALC<=@DatEnd
+
+  ELSE
+
+  INSERT #TmpFirst (
+	DATE_CALC,
+	CONTRACT_NUMBER,
+	CALC_QUANTITY,
+	TARIFF_ID,
+	TARIFF_VALUE,
+	MEASURE_ID)
+  SELECT
+	pcd.DATE_CALC,
+	pcd.CONTRACT_NUMBER,
+	pcd.CALC_QUANTITY,
+	pcd.TARIFF_ID,
+	pcd.TARIFF_VALUE,
+	pcd.MEASURE_ID
+  FROM
+	ProPlanDetails pcd (NOLOCK), --GERS pcd,
+        #TmpPart tp
+  WHERE
+	tp.CONTRACT_id=@ContractId AND
+	pcd.CONTRACT_NUMBER=tp.CONTRACT_NUMBER AND
+	pcd.DATE_CALC>=@DatBeg AND
+	pcd.DATE_CALC<=@DatEnd
+
+--**********************************************************************
+--SELECT * FROM  #TmpFirst
+
+  INSERT #TmpMain (
+	ROW_ID,
+	CONTRACT_NUMBER,
+	TARIFF_ID,
+	TARIFF_VALUE,
+	PERIOD  ,
+	QRT1    ,
+	QRT2    ,
+	QRT3    ,
+	QRT4    ,
+	MES1	,
+	MES2	,
+	MES3	,
+	MES4	,
+	MES5	,
+	MES6	,
+	MES7	,
+	MES8	,
+	MES9	,
+	MES10	,
+	MES11	,
+	MES12	)
+  SELECT
+	CASE WHEN MEASURE_ID=7 THEN 1 WHEN MEASURE_ID=0 THEN 3 ELSE 2 END,
+	CONTRACT_NUMBER,
+	TARIFF_ID,
+	TARIFF_VALUE,
+	SUM(CALC_QUANTITY),
+--	CASE WHEN MEASURE_ID=7 THEN AVG(CALC_QUANTITY) ELSE SUM(CALC_QUANTITY) END,
+	SUM(CASE WHEN MONTH(DATE_CALC) IN (1,2,3) THEN CALC_QUANTITY ELSE 0 END),
+	SUM(CASE WHEN MONTH(DATE_CALC) IN (4,5,6) THEN CALC_QUANTITY ELSE 0 END),
+	SUM(CASE WHEN MONTH(DATE_CALC) IN (7,8,9) THEN CALC_QUANTITY ELSE 0 END),
+	SUM(CASE WHEN MONTH(DATE_CALC) IN (10,11,12) THEN CALC_QUANTITY ELSE 0 END),
+	SUM(CASE WHEN MONTH(DATE_CALC)=1 THEN CALC_QUANTITY ELSE 0 END),
+
+	SUM(CASE WHEN MONTH(DATE_CALC)=2 THEN CALC_QUANTITY ELSE 0 END),
+	SUM(CASE WHEN MONTH(DATE_CALC)=3 THEN CALC_QUANTITY ELSE 0 END),
+	SUM(CASE WHEN MONTH(DATE_CALC)=4 THEN CALC_QUANTITY ELSE 0 END),
+	SUM(CASE WHEN MONTH(DATE_CALC)=5 THEN CALC_QUANTITY ELSE 0 END),
+	SUM(CASE WHEN MONTH(DATE_CALC)=6 THEN CALC_QUANTITY ELSE 0 END),
+	SUM(CASE WHEN MONTH(DATE_CALC)=7 THEN CALC_QUANTITY ELSE 0 END),
+	SUM(CASE WHEN MONTH(DATE_CALC)=8 THEN CALC_QUANTITY ELSE 0 END),
+	SUM(CASE WHEN MONTH(DATE_CALC)=9 THEN CALC_QUANTITY ELSE 0 END),
+	SUM(CASE WHEN MONTH(DATE_CALC)=10 THEN CALC_QUANTITY ELSE 0 END),
+	SUM(CASE WHEN MONTH(DATE_CALC)=11 THEN CALC_QUANTITY ELSE 0 END),
+	SUM(CASE WHEN MONTH(DATE_CALC)=12 THEN CALC_QUANTITY ELSE 0 END)
+  FROM
+	#TmpFirst
+  GROUP BY
+	CONTRACT_NUMBER,
+        MEASURE_ID,
+	TARIFF_ID,
+	TARIFF_VALUE
+
+END 
+
+
+  IF @Tariff=0
+
+  SELECT
+  pt.TARIFF_NAME,
+	ROW_ID,
+	tp.TARIFF_ID,
+	TARIFF_VALUE,
+/*	Period=SUM(CASE WHEN ROW_ID=1 THEN Period/12 ELSE Period END),*/
+  Period = case when row_id = 1
+                then round(sum(Period)/12,0)
+                else sum(Period) end,
+/*
+	QRT1=SUM(CASE WHEN ROW_ID=1 THEN QRT1/3 ELSE QRT1 END),
+	QRT2=SUM(CASE WHEN ROW_ID=1 THEN QRT2/3 ELSE QRT2 END),
+	QRT3=SUM(CASE WHEN ROW_ID=1 THEN QRT3/3 ELSE QRT3 END),
+	QRT4=SUM(CASE WHEN ROW_ID=1 THEN QRT4/3 ELSE QRT4 END),
+*/
+ -- заменено на ------------------------
+  QRT1=case when row_id = 1
+            then round(SUM(QRT1)/3,0)
+            else SUM(QRT1) end,
+	QRT2=case when row_id = 1
+            then round(SUM(QRT2)/3,0)
+            else SUM(QRT2) end,
+	QRT3=case when row_id = 1
+            then round(SUM(QRT3)/3,0)
+            else SUM(QRT3) end,
+	QRT4=case when row_id = 1
+            then round(SUM(QRT4)/3,0)
+            else SUM(QRT4) end,
+------- Матесовым Д. 
+	MES1=SUM(MES1),
+	MES2=SUM(MES2),
+	MES3=SUM(MES3),
+	MES4=SUM(MES4),
+	MES5=SUM(MES5),
+	MES6=SUM(MES6),
+	MES7=SUM(MES7),
+	MES8=SUM(MES8),
+	MES9=SUM(MES9),
+	MES10=SUM(MES10),
+	MES11=SUM(MES11),
+	MES12=SUM(MES12)
+  FROM
+        #TmpMain tp,
+        ProTariffs pt
+  WHERE
+        pt.TARIFF_ID=tp.TARIFF_ID
+  GROUP BY
+        pt.TARIFF_NAME,
+	ROW_ID,
+	tp.TARIFF_ID,
+	TARIFF_VALUE
+  ORDER BY
+        tp.ROW_ID,
+        tp.TARIFF_ID
+
+
+  ELSE 
+
+  SELECT
+	TARIFF_NAME=pc.CONTRACT_NUMBER+' '+ABONENT_NAME,
+        ROW_ID,
+	TARIFF_ID,
+	TARIFF_VALUE=convert(decimal(9,4),pc.CONSUMER_GROUP_ID),
+	MES1=SUM(MES1),
+	MES2=SUM(MES2),
+	MES3=SUM(MES3),
+	/*QRT1=SUM(CASE WHEN ROW_ID=1 THEN QRT1/3 ELSE QRT1 END),*/
+  QRT1=case when row_id = 1
+            then round(SUM(QRT1)/3,0)
+            else SUM(QRT1) end,
+	MES4=SUM(MES4),
+	MES5=SUM(MES5),
+	MES6=SUM(MES6),
+  /*QRT2=SUM(CASE WHEN ROW_ID=1 THEN QRT2/3 ELSE QRT2 END),*/
+  QRT2=case when row_id = 1
+            then round(SUM(QRT2)/3,0)
+            else SUM(QRT2) end,
+	MES7=SUM(MES7),
+	MES8=SUM(MES8),
+	MES9=SUM(MES9),
+	/*QRT3=SUM(CASE WHEN ROW_ID=1 THEN QRT3/3 ELSE QRT3 END),*/
+  QRT3=case when row_id = 1
+            then round(SUM(QRT3)/3,0)
+            else SUM(QRT3) end,
+	MES10=SUM(MES10),
+	MES11=SUM(MES11),
+	MES12=SUM(MES12),
+	/*QRT4=SUM(CASE WHEN ROW_ID=1 THEN QRT4/3 ELSE QRT4 END),*/
+  QRT4=case when row_id = 1
+            then round(SUM(QRT4)/3,0)
+            else SUM(QRT4) end,
+	/*Period=SUM(CASE WHEN ROW_ID=1 THEN Period/12 ELSE Period END)*/
+  Period = case when row_id = 1
+                then round(sum(Period)/12,0)
+                else sum(Period) end
+
+
+  FROM
+	ProAbonents pa,
+	ProContracts pc,
+        #TmpMain tp
+  WHERE
+	pc.ABONENT_ID=pa.ABONENT_ID AND
+	tp.CONTRACT_NUMBER=pc.CONTRACT_NUMBER AND
+	ROW_ID>1
+  GROUP BY
+	pc.CONTRACT_NUMBER+' '+ABONENT_NAME,
+        ROW_ID,
+	TARIFF_ID,
+	pc.CONSUMER_GROUP_ID
+--#################################################3
+END
+
+
+ELSE
+
+BEGIN
+--#########################################3
+
+If @Fact = 1
+BEGIN
+
+  If @ContractId=0
+
+  INSERT #TmpFirst (
+	DATE_CALC,
+	CONTRACT_NUMBER,
+	CALC_QUANTITY,
+	TARIFF_ID,
+	TARIFF_VALUE,
+	MEASURE_ID)
+  SELECT
+	pc.DATE_CALC,
+	pc.CONTRACT_NUMBER,
+	CALC_QUANTITY=SUM(IsNull(pcd.CALC_QUANTITY,0)),
+	pcd.TARIFF_ID,
+	pcd.TARIFF_VALUE,
+	pcd.MEASURE_ID
+  FROM
+	ProCalcs pc,
+	ProCalcDetails pcd,
+        #TmpPart tp
+  WHERE
+	pc.CONTRACT_id=tp.CONTRACT_id AND
+	pc.DATE_CALC>=@DatBeg AND
+	pc.DATE_CALC<=@DatEnd AND
+	pcd.CALC_ID=pc.CALC_ID AND
+	IsNull(pcd.CALC_QUANTITY,0)<>0 AND
+	pcd.DECODE_ID>0 AND
+	pcd.MEASURE_ID IN (4,7) AND
+	pcd.TARIFF_ID Is NOT NULL AND
+	pcd.TARIFF_VALUE Is NOT NULL
+  GROUP BY
+	pc.DATE_CALC,
+	pc.CONTRACT_NUMBER,
+	pcd.TARIFF_ID,
+	pcd.TARIFF_VALUE,
+	pcd.MEASURE_ID
+  ELSE
+  INSERT #TmpFirst (
+	DATE_CALC,
+	CONTRACT_NUMBER,
+	CALC_QUANTITY,
+	TARIFF_ID,
+	TARIFF_VALUE,
+	MEASURE_ID)
+  SELECT
+	pc.DATE_CALC,
+	pc.CONTRACT_NUMBER,
+	CALC_QUANTITY=SUM(IsNull(pcd.CALC_QUANTITY,0)),
+	pcd.TARIFF_ID,
+	pcd.TARIFF_VALUE,
+	pcd.MEASURE_ID
+  FROM
+	ProCalcs pc,
+	ProCalcDetails pcd
+  WHERE
+	pc.CONTRACT_ID=@ContractId AND
+	pc.DATE_CALC>=@DatBeg AND
+	pc.DATE_CALC<=@DatEnd AND
+	pcd.CALC_ID=pc.CALC_ID AND
+	IsNull(pcd.CALC_QUANTITY,0)<>0 AND
+	pcd.DECODE_ID>0 AND
+	pcd.MEASURE_ID IN (4,7) AND
+	pcd.TARIFF_ID Is NOT NULL AND
+	pcd.TARIFF_VALUE Is NOT NULL
+  GROUP BY
+	pc.DATE_CALC,
+	pc.CONTRACT_NUMBER,
+	pcd.TARIFF_ID,
+	pcd.TARIFF_VALUE,
+	pcd.MEASURE_ID
+
+--**********************************************************************
+--SELECT * FROM  #TmpFirst
+
+  INSERT #TmpMain (
+	ROW_ID,
+	CONTRACT_NUMBER,
+	TARIFF_ID,
+	TARIFF_VALUE,
+	PERIOD  ,
+	QRT1    ,
+	QRT2    ,
+	QRT3    ,
+	QRT4    ,
+	MES1	,
+	MES2	,
+	MES3	,
+	MES4	,
+	MES5	,
+	MES6	,
+	MES7	,
+	MES8	,
+	MES9	,
+	MES10	,
+	MES11	,
+	MES12	)
+  SELECT
+	CASE WHEN TARIFF_ID IN (1,26,106) THEN 1 WHEN TARIFF_ID=0 THEN 3 ELSE 2 END,
+	CONTRACT_NUMBER,
+	TARIFF_ID,
+	TARIFF_VALUE,
+	SUM(CALC_QUANTITY),
+	SUM(CASE WHEN MONTH(DATE_CALC) IN (1,2,3) THEN CALC_QUANTITY ELSE 0 END),
+	SUM(CASE WHEN MONTH(DATE_CALC) IN (4,5,6) THEN CALC_QUANTITY ELSE 0 END),
+	SUM(CASE WHEN MONTH(DATE_CALC) IN (7,8,9) THEN CALC_QUANTITY ELSE 0 END),
+	SUM(CASE WHEN MONTH(DATE_CALC) IN (10,11,12) THEN CALC_QUANTITY ELSE 0 END),
+	SUM(CASE WHEN MONTH(DATE_CALC)=1 THEN CALC_QUANTITY ELSE 0 END),
+	SUM(CASE WHEN MONTH(DATE_CALC)=2 THEN CALC_QUANTITY ELSE 0 END),
+	SUM(CASE WHEN MONTH(DATE_CALC)=3 THEN CALC_QUANTITY ELSE 0 END),
+	SUM(CASE WHEN MONTH(DATE_CALC)=4 THEN CALC_QUANTITY ELSE 0 END),
+	SUM(CASE WHEN MONTH(DATE_CALC)=5 THEN CALC_QUANTITY ELSE 0 END),
+	SUM(CASE WHEN MONTH(DATE_CALC)=6 THEN CALC_QUANTITY ELSE 0 END),
+	SUM(CASE WHEN MONTH(DATE_CALC)=7 THEN CALC_QUANTITY ELSE 0 END),
+	SUM(CASE WHEN MONTH(DATE_CALC)=8 THEN CALC_QUANTITY ELSE 0 END),
+	SUM(CASE WHEN MONTH(DATE_CALC)=9 THEN CALC_QUANTITY ELSE 0 END),
+	SUM(CASE WHEN MONTH(DATE_CALC)=10 THEN CALC_QUANTITY ELSE 0 END),
+	SUM(CASE WHEN MONTH(DATE_CALC)=11 THEN CALC_QUANTITY ELSE 0 END),
+	SUM(CASE WHEN MONTH(DATE_CALC)=12 THEN CALC_QUANTITY ELSE 0 END)
+  FROM
+	#TmpFirst
+  GROUP BY
+	CONTRACT_NUMBER,
+	TARIFF_ID,
+	TARIFF_VALUE
+
+--*****************************************************************
+END
+
+ELSE
+BEGIN
+  If @ContractId=0
+  INSERT #TmpFirst (
+	DATE_CALC,
+	CONTRACT_NUMBER,
+	CALC_QUANTITY,
+	TARIFF_ID,
+	TARIFF_VALUE,
+	MEASURE_ID)
+  SELECT
+	pcd.DATE_CALC,
+	pcd.CONTRACT_NUMBER,
+	pcd.CALC_QUANTITY,
+	pcd.TARIFF_ID,
+	pcd.TARIFF_VALUE,
+	pcd.MEASURE_ID
+  FROM
+	ProPlanDetails pcd,
+        #TmpPart tp
+  WHERE
+	pcd.CONTRACT_NUMBER=tp.CONTRACT_NUMBER AND
+	pcd.DATE_CALC>=@DatBeg AND
+	pcd.DATE_CALC<=@DatEnd
+
+  ELSE
+
+  INSERT #TmpFirst (
+	DATE_CALC,
+	CONTRACT_NUMBER,
+	CALC_QUANTITY,
+	TARIFF_ID,
+	TARIFF_VALUE,
+	MEASURE_ID)
+  SELECT
+	pcd.DATE_CALC,
+	pcd.CONTRACT_NUMBER,
+	pcd.CALC_QUANTITY,
+	pcd.TARIFF_ID,
+	pcd.TARIFF_VALUE,
+	pcd.MEASURE_ID
+  FROM
+	ProPlanDetails pcd,
+        #TmpPart tp
+  WHERE
+	tp.CONTRACT_id=@ContractId AND
+	pcd.CONTRACT_NUMBER=tp.CONTRACT_NUMBER AND
+	pcd.DATE_CALC>=@DatBeg AND
+	pcd.DATE_CALC<=@DatEnd
+--**********************************************************************
+--SELECT * FROM  #TmpFirst
+
+  INSERT #TmpMain (
+	ROW_ID,
+	CONTRACT_NUMBER,
+	TARIFF_ID,
+	TARIFF_VALUE,
+	PERIOD  ,
+	QRT1    ,
+	QRT2    ,
+	QRT3    ,
+	QRT4    ,
+	MES1	,
+	MES2	,
+	MES3	,
+	MES4	,
+	MES5	,
+	MES6	,
+	MES7	,
+	MES8	,
+	MES9	,
+	MES10	,
+	MES11	,
+	MES12	)
+  SELECT
+	CASE WHEN MEASURE_ID=7 THEN 1 WHEN MEASURE_ID=0 THEN 3 ELSE 2 END,
+	CONTRACT_NUMBER,
+	TARIFF_ID,
+	TARIFF_VALUE,
+	SUM(CALC_QUANTITY),
+--	CASE WHEN MEASURE_ID=7 THEN AVG(CALC_QUANTITY) ELSE SUM(CALC_QUANTITY) END,
+	SUM(CASE WHEN MONTH(DATE_CALC) IN (1,2,3) THEN CALC_QUANTITY ELSE 0 END),
+	SUM(CASE WHEN MONTH(DATE_CALC) IN (4,5,6) THEN CALC_QUANTITY ELSE 0 END),
+	SUM(CASE WHEN MONTH(DATE_CALC) IN (7,8,9) THEN CALC_QUANTITY ELSE 0 END),
+	SUM(CASE WHEN MONTH(DATE_CALC) IN (10,11,12) THEN CALC_QUANTITY ELSE 0 END),
+	SUM(CASE WHEN MONTH(DATE_CALC)=1 THEN CALC_QUANTITY ELSE 0 END),
+	SUM(CASE WHEN MONTH(DATE_CALC)=2 THEN CALC_QUANTITY ELSE 0 END),
+	SUM(CASE WHEN MONTH(DATE_CALC)=3 THEN CALC_QUANTITY ELSE 0 END),
+	SUM(CASE WHEN MONTH(DATE_CALC)=4 THEN CALC_QUANTITY ELSE 0 END),
+	SUM(CASE WHEN MONTH(DATE_CALC)=5 THEN CALC_QUANTITY ELSE 0 END),
+	SUM(CASE WHEN MONTH(DATE_CALC)=6 THEN CALC_QUANTITY ELSE 0 END),
+	SUM(CASE WHEN MONTH(DATE_CALC)=7 THEN CALC_QUANTITY ELSE 0 END),
+	SUM(CASE WHEN MONTH(DATE_CALC)=8 THEN CALC_QUANTITY ELSE 0 END),
+	SUM(CASE WHEN MONTH(DATE_CALC)=9 THEN CALC_QUANTITY ELSE 0 END),
+	SUM(CASE WHEN MONTH(DATE_CALC)=10 THEN CALC_QUANTITY ELSE 0 END),
+	SUM(CASE WHEN MONTH(DATE_CALC)=11 THEN CALC_QUANTITY ELSE 0 END),
+	SUM(CASE WHEN MONTH(DATE_CALC)=12 THEN CALC_QUANTITY ELSE 0 END)
+  FROM
+	#TmpFirst
+  GROUP BY
+	CONTRACT_NUMBER,
+        MEASURE_ID,
+	TARIFF_ID,
+	TARIFF_VALUE
+END
+
+
+  IF @Tariff=0
+  SELECT
+        pt.TARIFF_NAME,
+	ROW_ID,
+	tp.TARIFF_ID,
+	TARIFF_VALUE,
+--	Period = SUM(CASE WHEN ROW_ID=1 THEN Period/12 ELSE Period END),
+  Period = case when row_id = 1
+                then round(sum(Period)/12,0)
+                else sum(Period) end,
+/* -- Кривой способ подсчета среднего - выдает огромные ошибки округления
+   -- Матесов Д. 27-07-2004
+	QRT1=SUM(CASE WHEN ROW_ID=1 THEN QRT1/3 ELSE QRT1 END),
+	QRT2=SUM(CASE WHEN ROW_ID=1 THEN QRT2/3 ELSE QRT2 END),
+	QRT3=SUM(CASE WHEN ROW_ID=1 THEN QRT3/3 ELSE QRT3 END),
+	QRT4=SUM(CASE WHEN ROW_ID=1 THEN QRT4/3 ELSE QRT4 END),
+*/
+-- заменено на ------------------------
+  QRT1=case when row_id = 1
+            then round(SUM(QRT1)/3,0)
+            else SUM(QRT1) end,
+	QRT2=case when row_id = 1
+            then round(SUM(QRT2)/3,0)
+            else SUM(QRT2) end,
+	QRT3=case when row_id = 1
+            then round(SUM(QRT3)/3,0)
+            else SUM(QRT3) end,
+	QRT4=case when row_id = 1
+            then round(SUM(QRT4)/3,0)
+            else SUM(QRT4) end,
+----------------------------------------
+	MES1=SUM(MES1),
+	MES2=SUM(MES2),
+	MES3=SUM(MES3),
+	MES4=SUM(MES4),
+	MES5=SUM(MES5),
+	MES6=SUM(MES6),
+	MES7=SUM(MES7),
+	MES8=SUM(MES8),
+	MES9=SUM(MES9),
+	MES10=SUM(MES10),
+	MES11=SUM(MES11),
+	MES12=SUM(MES12)
+  FROM
+        #TmpMain tp,
+        ProTariffs pt
+  WHERE
+        pt.TARIFF_ID=tp.TARIFF_ID
+  GROUP BY
+        pt.TARIFF_NAME,
+	ROW_ID,
+	tp.TARIFF_ID,
+	TARIFF_VALUE
+  ORDER BY
+        tp.ROW_ID,
+        tp.TARIFF_ID
+  ELSE
+  SELECT
+	TARIFF_NAME=pc.CONTRACT_NUMBER+' '+ABONENT_NAME,
+        ROW_ID,
+	TARIFF_ID,
+	TARIFF_VALUE=convert(decimal(9,4),pc.CONSUMER_GROUP_ID),
+	MES1=SUM(MES1),
+	MES2=SUM(MES2),
+	MES3=SUM(MES3),
+	/*QRT1=SUM(CASE WHEN ROW_ID=1 THEN QRT1/3 ELSE QRT1 END),*/
+  QRT1=case when row_id = 1
+            then round(SUM(QRT1)/3,0)
+            else SUM(QRT1) end,
+	MES4=SUM(MES4),
+	MES5=SUM(MES5),
+	MES6=SUM(MES6),
+	/*QRT2=SUM(CASE WHEN ROW_ID=1 THEN QRT2/3 ELSE QRT2 END),*/
+  QRT2=case when row_id = 1
+            then round(SUM(QRT2)/3,0)
+            else SUM(QRT2) end,
+	MES7=SUM(MES7),
+	MES8=SUM(MES8),
+	MES9=SUM(MES9),
+	/*QRT3=SUM(CASE WHEN ROW_ID=1 THEN QRT3/3 ELSE QRT3 END),*/
+  QRT3=case when row_id = 1
+            then round(SUM(QRT3)/3,0)
+            else SUM(QRT3) end,
+	MES10=SUM(MES10),
+	MES11=SUM(MES11),
+	MES12=SUM(MES12),
+	/*QRT4=SUM(CASE WHEN ROW_ID=1 THEN QRT4/3 ELSE QRT4 END),*/
+  QRT4=case when row_id = 1
+            then round(SUM(QRT4)/3,0)
+            else SUM(QRT4) end,
+	/*Period=SUM(CASE WHEN ROW_ID=1 THEN Period/12 ELSE Period END)*/
+  Period = case when row_id = 1
+                then round(sum(Period)/12,0)
+                else sum(Period) end
+
+  FROM
+	ProAbonents pa,
+	ProContracts pc,
+        #TmpMain tp
+  WHERE
+	pc.ABONENT_ID=pa.ABONENT_ID AND
+	tp.CONTRACT_NUMBER=pc.CONTRACT_NUMBER AND
+	ROW_ID>1
+  GROUP BY
+	pc.CONTRACT_NUMBER+' '+ABONENT_NAME,
+        ROW_ID,
+	TARIFF_ID,
+	pc.CONSUMER_GROUP_ID
+--#################################################3
+END
+
+
+DROP TABLE #TmpMain
+DROP TABLE #TmpFirst
+

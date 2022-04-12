@@ -1,0 +1,28 @@
+SELECT
+  CONTRACT_ID,
+  DATE_CALC,
+  CONTRACT_NUMBER,
+  CALC_QUANTITY,
+  TARIFF_ID,
+  TARIFF_VALUE,
+  MEASURE_ID,
+  GROUP_ID
+ FROM
+  ProPlanDetails PD (NoLock)
+ WHERE
+  PD.CONTRACT_ID=22014 AND
+  YEAR(DATE_CALC)=2005
+
+SELECT
+  CONTRACT_ID,
+  sum(  CALC_QUANTITY)
+ FROM
+  ProPlanDetails PD (NoLock)
+ WHERE
+  PD.CONTRACT_ID=22014 AND
+  YEAR(DATE_CALC)=2005
+--and TARIFF_ID Not In(1,26,106)
+group by CONTRACT_ID
+
+Select * from ProTariffs
+Select * from ProTariffValues
